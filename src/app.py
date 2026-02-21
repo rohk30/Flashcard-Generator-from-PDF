@@ -1,25 +1,34 @@
+import sys
+from pathlib import Path
+
+sys.path.append(str(Path(__file__).resolve().parents[1]))
+
 import streamlit as st
 import os
 import tempfile
 import time
 
-from services.pdf_parser import parse_pdf_gre_format
-from services.anki_connect import (
+from src.services.pdf_parser import parse_pdf_gre_format
+from src.services.anki_connect import (
     get_models,
     create_deck,
     delete_deck,
     add_note,
     get_deck_card_count
 )
-from services.apkg_export import generate_apkg
-from utils.config import DEFAULT_ANKI_HOST, DEFAULT_ANKI_PORT
+from src.services.apkg_export import generate_apkg
+from src.utils.config import DEFAULT_ANKI_HOST, DEFAULT_ANKI_PORT
 
+# -------------------- Streamlit Setup --------------------
 st.set_page_config(page_title="PDF → Anki GRE Flashcards", layout="centered")
 
 st.title("📚 PDF → Anki GRE Flashcards")
 st.write("Upload your GRE vocabulary PDF and generate Anki flashcards automatically.")
 
-mode = st.radio("Mode", ["📦 Export Anki Deck (.apkg) [Cloud-friendly]", "🚀 Sync to Local Anki (Advanced)"])
+mode = st.radio(
+    "Mode",
+    ["📦 Export Anki Deck (.apkg) [Cloud-friendly]", "🚀 Sync to Local Anki (Advanced -- strictly only for local use)"]
+)
 
 anki_host = st.text_input("Anki Host", value=DEFAULT_ANKI_HOST)
 anki_port = st.text_input("Anki Port", value=DEFAULT_ANKI_PORT)
@@ -27,23 +36,39 @@ anki_port = st.text_input("Anki Port", value=DEFAULT_ANKI_PORT)
 delete_existing_deck = st.checkbox("🧹 Delete existing deck before import (avoid duplicates)", value=True)
 throttle_ms = st.slider("⏱ Delay between cards (ms)", min_value=0, max_value=200, value=50, step=10)
 
+# -------------------- Session State --------------------
+if "entries" not in st.session_state:
+    st.session_state.entries = None
+
+if "deck_name" not in st.session_state:
+    st.session_state.deck_name = None
+
+# -------------------- Upload + Process Flow --------------------
 uploaded_file = st.file_uploader("Upload GRE Vocabulary PDF", type=["pdf"])
 
 if uploaded_file:
     deck_name = os.path.splitext(uploaded_file.name)[0]
-    st.success(f"Deck Name: {deck_name}")
+    st.info(f"📄 Uploaded: {uploaded_file.name}")
 
     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
         tmp.write(uploaded_file.read())
         pdf_path = tmp.name
 
-    entries = parse_pdf_gre_format(pdf_path)
+    if st.button("🧠 Process PDF"):
+        entries = parse_pdf_gre_format(pdf_path)
 
-    if not entries:
-        st.error("❌ No words were parsed from the PDF.")
-        st.stop()
+        if not entries:
+            st.error("❌ No words were parsed from the PDF.")
+        else:
+            st.session_state.entries = entries
+            st.session_state.deck_name = deck_name
+            st.success(f"Parsed {len(entries)} words successfully!")
 
-    st.success(f"Parsed {len(entries)} words successfully!")
+# -------------------- Post-Processing Actions --------------------
+if st.session_state.entries:
+    entries = st.session_state.entries
+    deck_name = st.session_state.deck_name
+
     st.write("🔍 Preview (first 10 entries):")
     st.write(entries[:10])
 
@@ -72,7 +97,10 @@ if uploaded_file:
                     st.stop()
 
                 if delete_existing_deck:
-                    delete_deck(anki_host, anki_port, deck_name)
+                    try:
+                        delete_deck(anki_host, anki_port, deck_name)
+                    except Exception:
+                        pass  # deck may not exist yet
 
                 create_deck(anki_host, anki_port, deck_name)
 
