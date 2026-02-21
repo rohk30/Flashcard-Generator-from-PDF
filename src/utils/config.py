@@ -1,0 +1,2 @@
+DEFAULT_ANKI_HOST = "http://localhost"
+DEFAULT_ANKI_PORT = "8765"
